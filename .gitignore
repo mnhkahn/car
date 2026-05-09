@@ -1,0 +1,20 @@
+# PlatformIO
+.pio/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary/test sketches (not part of the project)
+/tmp/
+
+# Editor backups
+*.bak
+*.tmp
