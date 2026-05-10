@@ -128,6 +128,7 @@ const RX_UUID      = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
 let device = null, server = null, rxChar = null;
 let connected = false, speed = 200;
 let lastCmd = null, lastSendTime = 0;
+let writing = false, pendingCmd = null;
 
 const statusEl = document.getElementById('status');
 const connectBtn = document.getElementById('connectBtn');
@@ -184,15 +185,30 @@ function onDisconnect() {
 
 async function send(cmd) {
   if (!connected || !rxChar) return;
-  if (cmd === lastCmd && Date.now() - lastSendTime < 200) return; // 200ms内重复指令不发
+  if (cmd === lastCmd && Date.now() - lastSendTime < 200) return;
   lastCmd = cmd;
   lastSendTime = Date.now();
-  const fullCmd = cmd + speed;
+
+  if (writing) {
+    pendingCmd = cmd;  // 覆盖旧排队指令，保留最新的
+    return;
+  }
+
+  writing = true;
   try {
+    const fullCmd = cmd + speed;
     await rxChar.writeValue(new TextEncoder().encode(fullCmd));
     log(`发送 ${fullCmd}`);
   } catch (e) {
     log('发送失败');
+  }
+  writing = false;
+
+  // 写入完成后，如果排队了新指令，发掉它
+  if (pendingCmd !== null) {
+    const next = pendingCmd;
+    pendingCmd = null;
+    send(next);
   }
 }
 

@@ -2,6 +2,7 @@
 #include <BLEServer.h>
 #include <BLECharacteristic.h>
 #include <BLE2902.h>
+#include <Adafruit_NeoPixel.h>
 
 #define SERVICE_UUID           "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
 #define CHARACTERISTIC_UUID_RX "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
@@ -13,6 +14,9 @@
 #define ENB 8
 #define IN3 9
 #define IN4 10
+
+// Onboard RGB LED (WS2812) — most ESP32-S3 boards use GPIO 48
+#define NEOPIXEL_PIN 48
 
 class MotorDriver {
 public:
@@ -37,13 +41,33 @@ public:
 };
 
 MotorDriver motor;
+Adafruit_NeoPixel rgb(1, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
+
 BLEServer *pServer = NULL;
 BLECharacteristic *pTxCharacteristic;
 unsigned long lastCmdTime = 0;
-unsigned long ledFlashTime = 0;
 int speed = 200;
 bool deviceConnected = false;
 bool oldDeviceConnected = false;
+
+// LED state
+unsigned long ledColorTime = 0;
+uint32_t currentLedColor = 0;
+const unsigned long LED_DURATION = 300;  // ms
+
+// Direction → color mapping
+uint32_t colorForCmd(char cmd) {
+  switch (cmd) {
+    case 'F': return Adafruit_NeoPixel::Color(0, 40, 0);     // Green
+    case 'B': return Adafruit_NeoPixel::Color(40, 0, 0);     // Red
+    case 'L': return Adafruit_NeoPixel::Color(0, 0, 40);     // Blue
+    case 'R': return Adafruit_NeoPixel::Color(40, 20, 0);    // Orange
+    case 'l': return Adafruit_NeoPixel::Color(0, 20, 20);    // Cyan
+    case 'r': return Adafruit_NeoPixel::Color(20, 10, 0);    // Gold
+    case 'S': return Adafruit_NeoPixel::Color(0, 0, 0);      // Off
+    default: return Adafruit_NeoPixel::Color(20, 20, 20);    // White (speed)
+  }
+}
 
 class MyServerCallbacks : public BLEServerCallbacks {
   void onConnect(BLEServer *pServer) {
@@ -60,7 +84,9 @@ class MyCallbacks : public BLECharacteristicCallbacks {
     if (rxValue.length() > 0) {
       char cmd = rxValue[0];
       lastCmdTime = millis();
-      ledFlashTime = millis();
+      ledColorTime = millis();
+      currentLedColor = colorForCmd(cmd);
+
       switch (cmd) {
         case 'F': motor.set(speed, speed); break;
         case 'B': motor.set(-speed, -speed); break;
@@ -78,7 +104,10 @@ class MyCallbacks : public BLECharacteristicCallbacks {
 };
 
 void setup() {
-  pinMode(LED_BUILTIN, OUTPUT);
+  rgb.begin();
+  rgb.clear();
+  rgb.show();
+
   motor.init();
 
   BLEDevice::init("ESP32-S3-Car");
@@ -102,13 +131,21 @@ void setup() {
 void loop() {
   if (millis() - lastCmdTime > 500) motor.stop();
 
-  // LED status
+  // RGB LED feedback
   if (!deviceConnected) {
-    digitalWrite(LED_BUILTIN, (millis() / 500) % 2);
-  } else if (millis() - ledFlashTime < 100) {
-    digitalWrite(LED_BUILTIN, LOW);
+    // Disconnected: slow blink
+    rgb.setPixelColor(0, (millis() / 500) % 2
+      ? Adafruit_NeoPixel::Color(0, 0, 0)
+      : Adafruit_NeoPixel::Color(10, 10, 10));
+    rgb.show();
+  } else if (millis() - ledColorTime < LED_DURATION) {
+    // Show direction color
+    rgb.setPixelColor(0, currentLedColor);
+    rgb.show();
   } else {
-    digitalWrite(LED_BUILTIN, HIGH);
+    // Off
+    rgb.setPixelColor(0, Adafruit_NeoPixel::Color(0, 0, 0));
+    rgb.show();
   }
 
   // Disconnect handling: restart advertising
